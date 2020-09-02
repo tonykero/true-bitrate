@@ -82,7 +82,6 @@ int main(int argc, char** argv)
     {
         gfx::window& window_obj = gfx::window::instance(1280, 720, "True bitrate");
         
-        ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
         static float* xs = (float*)malloc(final_data.size() * sizeof(float));
         for(int i = 0; i < final_data.size(); i++) {
             xs[i] = i;
