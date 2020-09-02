@@ -20,6 +20,7 @@
 #include <kfr/io.hpp>
 
 #include "spectrum.hpp"
+#include "gfx.hpp"
 
 static void glfw_error_callback(int error, const char* description)
 {
@@ -61,9 +62,7 @@ int main(int argc, char** argv)
         uint32_t freq       = sample_rate;
         
         // raw data
-        univector<float> audio_data(freq * seconds);
-        println("size: ", reader_ptr->read(audio_data.data(), audio_data.size()));
-
+        univector<float> audio_data = reader_ptr->read(freq*seconds);
         // perform dft
        final_data = spectrum::process_data(audio_data, freq);
         
@@ -77,52 +76,19 @@ int main(int argc, char** argv)
         std::cout << "cutoff at " << cutoff * 2 << " Hz";
     }
     // Setup window
-    glfwSetErrorCallback(glfw_error_callback);
-    if (!glfwInit())
+    if(!gfx::init(glfw_error_callback)) 
         return 1;
 
-    GLFWwindow* window = glfwCreateWindow(1280, 720, "Dear ImGui GLFW+OpenGL3 example", NULL, NULL);
-    if (window == NULL)
-        return 1;
-    glfwMakeContextCurrent(window);
-    glfwSwapInterval(1); // Enable vsync
-    if(! gladLoadGL()) {
-        std::cout << "[GLAD] Failed to initialize OpenGL\n";
-        return 1;
-    }
-    // Setup Dear ImGui context
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-    ImGuiIO& io = ImGui::GetIO(); (void)io;
-
-    // Setup Dear ImGui style
-    ImGui::StyleColorsDark();
-
-    // Setup Platform/Renderer bindings
-    ImGui_ImplGlfw_InitForOpenGL(window, true);
-    ImGui_ImplOpenGL3_Init("#version 130");
-
-    // Our state
-    ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
-    static float* xs = (float*)malloc(final_data.size() * sizeof(float));
-    for(int i = 0; i < final_data.size(); i++) {
-        xs[i] = i;
-    }
-
-    // Main loop
-    while (!glfwWindowShouldClose(window))
     {
-        glfwPollEvents();
+        gfx::window& window_obj = gfx::window::instance(1280, 720, "True bitrate");
+        
+        ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
+        static float* xs = (float*)malloc(final_data.size() * sizeof(float));
+        for(int i = 0; i < final_data.size(); i++) {
+            xs[i] = i;
+        }
 
-        // get window size
-        int display_w, display_h;
-        glfwGetFramebufferSize(window, &display_w, &display_h);
-
-        // Start the Dear ImGui frame
-        ImGui_ImplOpenGL3_NewFrame();
-        ImGui_ImplGlfw_NewFrame();
-        ImGui::NewFrame();
-
+        window_obj.loop([&](int display_w, int display_h){
             ImGui::SetNextWindowPos(ImVec2(0,0));
             ImGui::SetNextWindowSize(ImVec2(display_w, display_h));
             ImGui::Begin("##Main", nullptr, ImGuiWindowFlags_NoCollapse |
@@ -136,6 +102,8 @@ int main(int argc, char** argv)
                 ImPlot::PlotLine("DFT", xs, final_data.data(), final_data.size());
                 ImPlot::PushStyleVar(ImPlotStyleVar_LineWeight, 2.0f);
                 ImPlot::PlotLine("smooth", xs, smooth_data.data(), smooth_data.size());
+                
+                // draw vertical indicator
                 ImVec2 p0 = ImPlot::PlotToPixels(ImPlotPoint(cutoff, -10000));
                 ImVec2 p1 = ImPlot::PlotToPixels(ImPlotPoint(cutoff, +10000));
                 ImPlot::PushPlotClipRect();
@@ -145,26 +113,11 @@ int main(int argc, char** argv)
                 ImPlot::EndPlot();
             }
             ImGui::End();
-
-        // Rendering
-        ImGui::Render();
-        glViewport(0, 0, display_w, display_h);
-        glClearColor(clear_color.x, clear_color.y, clear_color.z, clear_color.w);
-        glClear(GL_COLOR_BUFFER_BIT);
-        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-
-        glfwSwapBuffers(window);
+        });
+        free(xs);
     }
-
-    free(xs);
-
-    // Cleanup
-    ImGui_ImplOpenGL3_Shutdown();
-    ImGui_ImplGlfw_Shutdown();
-    ImGui::DestroyContext();
-
-    glfwDestroyWindow(window);
-    glfwTerminate();
+    
+    gfx::destroy();
 
     return 0;
 }
