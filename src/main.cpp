@@ -43,7 +43,7 @@ std::shared_ptr<audio_reader<T>> reader_from_audio(const std::string& _filename)
 
 int main(int argc, char** argv)
 {
-    univector<float> final_data, smooth_data;
+    univector<float> final_data, smooth_data, db_data;
     univector<float> max_bins;
     uint32_t window = 0, cutoff = 0, seconds = 0;
     if(argc > 1) {
@@ -65,9 +65,27 @@ int main(int argc, char** argv)
         // raw data
         univector<float> audio_data = reader_ptr->read(freq*seconds);
         // perform dft
-        final_data = spectrum::process_data(audio_data, freq);
-        max_bins = spectrum::max_bins(audio_data, freq);
-        // smooth
+        univector<float> dft_data = spectrum::compute_dft(audio_data, freq);
+
+        uint32_t size = sample_rate / 2;
+        // sum frequencies to get magnitudes
+        final_data.resize(size, 0);
+        for(int i = 0; i < seconds; i++) {
+            final_data += dft_data.slice(i * (size), size);
+        }
+        final_data = final_data.slice(0, final_data.size()/2);
+
+        // store magnitudes as decibels
+        db_data = 20 * log10(2 * final_data / size);
+        
+        // normalize magnitudes
+        final_data /= seconds;
+        final_data = log10(final_data);
+        
+        // compute frequencies with lowest magnitudes
+        max_bins = spectrum::max_bins(dft_data, freq/2);
+
+        // smooth with moving average
         window = freq/400;
         smooth_data = spectrum::average(final_data, window);
         
@@ -90,7 +108,6 @@ int main(int argc, char** argv)
         std::copy(xs.begin(), xs.end(), xs_ma.begin());
         smooth_data = smooth_data.slice(window, smooth_data.size()-window);
 
-
         static univector<float> xs_secs(seconds);
         std::iota(xs_secs.begin(), xs_secs.end(), 0);
 
@@ -105,11 +122,14 @@ int main(int argc, char** argv)
                                             ImGuiWindowFlags_NoTitleBar);   // Pass a pointer to our bool variable (the window will have a closing button that will clear the bool when clicked)
 
             ImPlot::SetNextPlotLimits(-1000, final_data.size(), -5, 5);
-            if (ImPlot::BeginPlot("DFT", "Frequencies", "Magnitude", ImVec2(-1, -1))) {
+            ImPlot::SetNextPlotLimitsY(-120, 0, ImGuiCond_Once, 1);
+            ImPlot::SetNextPlotLimitsY(-5, 5, ImGuiCond_Once, 2);
+            if (ImPlot::BeginPlot("DFT", "Frequencies", "Magnitude", ImVec2(-1, display_h/2.1), ImPlotFlags_Default | ImPlotFlags_YAxis2)) {
                 ImPlot::PushStyleVar(ImPlotStyleVar_LineWeight, 1.0f);
-                ImPlot::PlotLine("DFT", xs.data(), final_data.data(), final_data.size());
+                ImPlot::SetPlotYAxis(1);
+                ImPlot::PlotLine("DFT", xs.data(), db_data.data(), db_data.size());
                 ImPlot::PushStyleVar(ImPlotStyleVar_LineWeight, 2.0f);
-                
+                ImPlot::SetPlotYAxis(2);
                 ImPlot::PlotLine(str_ma.c_str(), xs_ma.data(), smooth_data.data(), smooth_data.size());
                 // draw vertical indicator
                 ImVec2 p0 = ImPlot::PlotToPixels(ImPlotPoint(cutoff, -10000));
@@ -121,7 +141,7 @@ int main(int argc, char** argv)
                 ImPlot::EndPlot();
             }
             ImPlot::SetNextPlotLimits(0, seconds, 0, 44100);
-            if(ImPlot::BeginPlot("Frequency graph")) {
+            if(ImPlot::BeginPlot("Frequency graph", "Seconds", "Frequency", ImVec2(-1, display_h/2.1))) {
                 ImPlot::PlotLine("max_bins", xs_secs.data(), max_bins.data(), max_bins.size());
                 ImPlot::EndPlot();
             }
