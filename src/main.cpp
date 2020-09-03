@@ -1,6 +1,6 @@
 #include <string>
 #include <iostream>
-#include <memory>
+#include <numeric>
 
 // imgui
 #include <imgui.h>
@@ -44,7 +44,8 @@ std::shared_ptr<audio_reader<T>> reader_from_audio(const std::string& _filename)
 int main(int argc, char** argv)
 {
     univector<float> final_data, smooth_data;
-    uint32_t cutoff;
+    univector<float> max_bins;
+    uint32_t window = 0, cutoff = 0, seconds = 0;
     if(argc > 1) {
         const std::string filename(argv[1]);
         auto reader_ptr = reader_from_audio<float>(filename);
@@ -58,21 +59,21 @@ int main(int argc, char** argv)
         println("Duration (s) = ", duration);
         println("Bit depth    = ", audio_sample_bit_depth(reader_ptr->format().type));
         
-        uint32_t seconds    = min<uint32_t, uint32_t>(30, duration);
+        seconds    = min<uint32_t, uint32_t>(30, duration);
         uint32_t freq       = sample_rate;
         
         // raw data
         univector<float> audio_data = reader_ptr->read(freq*seconds);
         // perform dft
-       final_data = spectrum::process_data(audio_data, freq);
-        
+        final_data = spectrum::process_data(audio_data, freq);
+        max_bins = spectrum::max_bins(audio_data, freq);
         // smooth
-        uint32_t window = freq/100;
-       smooth_data = spectrum::average(final_data, window);
-       smooth_data = smooth_data.slice(0, smooth_data.size()/2);
+        window = freq/400;
+        smooth_data = spectrum::average(final_data, window);
         
         // find cutoff
-        cutoff = spectrum::find_cutoff(smooth_data, window, 1.25, 1.1);
+        cutoff = spectrum::find_cutoff(smooth_data, window, 0.5, 1.1);
+        cutoff -=window;
         std::cout << "cutoff at " << cutoff * 2 << " Hz";
     }
     // Setup window
@@ -82,10 +83,18 @@ int main(int argc, char** argv)
     {
         gfx::window& window_obj = gfx::window::instance(1280, 720, "True bitrate");
         
-        static float* xs = (float*)malloc(final_data.size() * sizeof(float));
-        for(int i = 0; i < final_data.size(); i++) {
-            xs[i] = i;
-        }
+
+        static univector<float> xs(final_data.size());
+        static univector<float> xs_ma(final_data.size());
+        std::iota(xs.begin(), xs.end(), .0);
+        std::copy(xs.begin(), xs.end(), xs_ma.begin());
+        smooth_data = smooth_data.slice(window, smooth_data.size()-window);
+
+
+        static univector<float> xs_secs(seconds);
+        std::iota(xs_secs.begin(), xs_secs.end(), 0);
+
+        const std::string str_ma("MA " + std::to_string(window));
 
         window_obj.loop([&](int display_w, int display_h){
             ImGui::SetNextWindowPos(ImVec2(0,0));
@@ -95,13 +104,13 @@ int main(int argc, char** argv)
                                             ImGuiWindowFlags_NoResize   |
                                             ImGuiWindowFlags_NoTitleBar);   // Pass a pointer to our bool variable (the window will have a closing button that will clear the bool when clicked)
 
-            ImPlot::SetNextPlotLimits(0, final_data.size(), -5, 5);
-            if (ImPlot::BeginPlot("Line Plot", "Frequencies", "Magnitude", ImVec2(-1, -1))) {
+            ImPlot::SetNextPlotLimits(-1000, final_data.size(), -5, 5);
+            if (ImPlot::BeginPlot("DFT", "Frequencies", "Magnitude", ImVec2(-1, -1))) {
                 ImPlot::PushStyleVar(ImPlotStyleVar_LineWeight, 1.0f);
-                ImPlot::PlotLine("DFT", xs, final_data.data(), final_data.size());
+                ImPlot::PlotLine("DFT", xs.data(), final_data.data(), final_data.size());
                 ImPlot::PushStyleVar(ImPlotStyleVar_LineWeight, 2.0f);
-                ImPlot::PlotLine("smooth", xs, smooth_data.data(), smooth_data.size());
                 
+                ImPlot::PlotLine(str_ma.c_str(), xs_ma.data(), smooth_data.data(), smooth_data.size());
                 // draw vertical indicator
                 ImVec2 p0 = ImPlot::PlotToPixels(ImPlotPoint(cutoff, -10000));
                 ImVec2 p1 = ImPlot::PlotToPixels(ImPlotPoint(cutoff, +10000));
@@ -111,9 +120,13 @@ int main(int argc, char** argv)
                 ImPlot::PopPlotClipRect();
                 ImPlot::EndPlot();
             }
+            ImPlot::SetNextPlotLimits(0, seconds, 0, 44100);
+            if(ImPlot::BeginPlot("Frequency graph")) {
+                ImPlot::PlotLine("max_bins", xs_secs.data(), max_bins.data(), max_bins.size());
+                ImPlot::EndPlot();
+            }
             ImGui::End();
         });
-        free(xs);
     }
     
     gfx::destroy();

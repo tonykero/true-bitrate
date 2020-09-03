@@ -22,10 +22,47 @@ namespace spectrum {
             // average
             final_data /= seconds;
 
+            // remove second half
+            final_data = final_data.slice(0, final_data.size() / 2.0);
+
             // normalize
             final_data = log10(final_data);
 
+            // db = 20 * log10(2 * fft / N)
+            // db = 20 * log10(2 * final_data / tmp.size())
+
             return final_data;
+        }
+
+        univector<float> max_bins(const univector<float>& _audio_data, uint32_t _samplerate) {
+            univector<float>            tmp;
+            univector<complex<float>>   dft_data;
+
+            uint32_t seconds = _audio_data.size() / _samplerate;
+            univector<float> max_bins(seconds);
+            univector2d<float> freq_graph(seconds);
+            // compute and sum dft data
+            for(int i = 0; i < seconds; i++) {
+                tmp = _audio_data.slice(i * _samplerate, _samplerate);// * window_hann(_samplerate);
+                dft_data = realdft(tmp);
+                
+                univector<float> magnitudes = cabs(dft_data);
+                float mean_magnitude = mean(magnitudes);
+                float max_magnitude = absmaxof(magnitudes);
+                float min_magnitude = absminof(magnitudes);
+            
+                float max_freq = 0;
+                for(int j = 0; j < magnitudes.size(); j++) {
+                    float f = magnitudes[j];
+                    if(f <= 5 * min_magnitude) {
+                        float freq = j * _samplerate / tmp.size();
+                        if(freq > max_freq) {max_freq = freq;}
+                        //std::cout << freq << "\n";
+                    }
+                }
+                max_bins[i] = max_freq;
+            }
+            return max_bins;
         }
 
         univector<float> average(const univector<float>& _data, uint32_t window) {
